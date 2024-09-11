@@ -1,0 +1,537 @@
+---
+title: "Model Checking"
+author: "Angela Yuan"
+date: "09/12/2018"
+output: learnr::tutorial
+runtime: shiny_prerendered
+---
+
+\newcommand{\mat}[1]{\boldsymbol{#1}}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+\newcommand{\rv}[1]{\underline{#1}} 
+
+<script type="text/javascript">
+<!--
+function toggle_visibility(id) {
+  var e = document.getElementById(id); 
+  if(e.style.display == 'none')
+    e.style.display = 'block';
+  else
+    e.style.display = 'none';
+}
+
+function answer_top(name){
+  var injection1 = '<a onclick=toggle_visibility("' + name + '")><b><u>Show answer</b></u></a>\n'
+  document.write(injection1 + "\n")
+  var injection2 = '<div id="' + name + '"style=display:none>'
+  document.write(injection2 + "\n")
+}
+
+function answer_bottom() {
+  document.write("</div>" + "\n")
+}
+//-->
+</script>  
+
+```{r setup, include=FALSE}
+library(learnr)
+library(foreign)
+library(gridExtra)
+library(ggplot2)
+library(car)
+library(lmtest)
+library(arm)
+knitr::opts_chunk$set(echo = TRUE,fig.width=8,fig.height=7 ,fig.align = "center",dev="CairoPNG")
+par( mar=c(3,3,2,1), mgp=c(2,.7,0), tck=-.01)
+#pacman::p_load("learnr","foreign","gridExtra","ggplot2","car","lmtest","arm",update=FALSE)
+```
+
+## Munich Rent Index
+
+We will explore model checking methods using the Munich Rent Index data (`rent99`).
+
+### Variables: 
+
+  - `rent`: Net rent per month (in Euro)
+  - `rentsqm`：Net rent per month per square meter (in Euro)
+  - `area`: Living area in square meters
+  - `yearc`: Year of construction
+  - `location`: Quality of location according to an expert assessment
+      - `1` = average location 
+      - `2` = good location 
+      - `3` = top location
+  - `district`: District in Munich
+
+```{r,echo=FALSE}
+# read data
+library(foreign)
+rent99<-foreign::read.dta("http://www.uni-goettingen.de/de/document/download/2c6a9110f66a779f34b55032bb4fcf8f.dta/rent99.dta")
+```
+
+```{r,fig.width=8,fig.height=6}
+gridExtra::grid.arrange(
+ggplot(rent99)+geom_point(alpha=0.1)+
+  aes(x=area,y=rent)
+,ggplot(rent99)+geom_point(alpha=0.1)+
+  aes(x=yearc,y=rent)
+,ggplot(rent99)+geom_boxplot()+
+  aes(x=factor(district),y=rent)
+,ggplot(rent99)+geom_boxplot()+
+  geom_jitter(alpha=0.1)+
+  aes(x=factor(location),y=rent)
+,ncol=2
+)
+```
+
+We fit a simple model without transformation:
+```{r}
+regout <- lm(rent ~ yearc + area + district + factor(location), data=rent99) 
+summary(regout)
+```
+
+### Assumptions of regression
+
+When fitting a regression model, here are list of things to keep in mind:
+
+1. Validity
+    - Does the data map to the research question?
+    - the model capture the comparison of interest?
+2. Additivity and Linearity
+    - Is $\mathbf{X}\boldsymbol{\beta}$ enough to explain the data?
+    - Is there transformation that we can apply?
+3. Independence of errors
+    - Are there extra structures in the data that we need to model?
+    - $\Rightarrow$ generalized least squares.
+4. Equal variance of errors 
+    - Does not affect the deterministic part of the model.
+    - $\Rightarrow$ weighted least squares.
+5. Outliers and unusual observations
+    - How much of the result is due to these unusual observations?
+    - What is the cost/benefit of removing them versus keeping them.
+6. Normality of errors
+    - Heavier tails, skewness, etc that affect the model fit.
+    - QQ-plot of the residuals 
+
+
+
+## Residuals
+
+- Whenever you fit a model, You should **ALWAYS** check the residuals. You might not show them to other people and most certainly not in the final product, nevertheless, they will save you from making mistakes that will cost you your career.  
+- Residuals are never shown to you because if they are worth showing, the model needs to be improved and if the model is good enough there is nothing to show in the residual.  But that means looking at the residual is your responsibility as a statistician.
+
+- For a linear regression model with $p$ predictors including the intercept
+$$\mathbf{y}= \mathbf{X}\boldsymbol{\beta} +\boldsymbol{\epsilon}$$
+- The error and the residual are defined as
+$$\boldsymbol{\epsilon}=\mathbf{y}-\mathbf{X}\boldsymbol{\beta} \mbox { and } \hat{\boldsymbol{\epsilon}}=\mathbf{y}-\hat{\mathbf{y}}=\mathbf{y}-\mathbf{X}\hat{\boldsymbol{\beta}}$$
+- By assumption the errors are iid $N(0,\sigma^2)$ therefore,
+$$ \boldsymbol{\epsilon} \sim N(\mathbf{0}, \sigma^2\mathbf{I})$$
+- We also saw in the bootcamp that
+$$\hat{\boldsymbol{\epsilon}}\sim N(\mathbf{0},\sigma^2(\mathbf{I}-\mathbf{H}))$$
+- Therefore the errors $\boldsymbol{\epsilon}$ are uncorrelated by assumption but the residual $\hat{\boldsymbol{\epsilon}}$ may be correlated and that amount of correlation is defined by $\mathbf{I}-\mathbf{H}$.
+
+
+### Standardized Residuals
+
+- Standardized residual (`rstandard`)
+$$\hat{\epsilon}_i^{'}= \frac{\hat{\epsilon}_i}{\sqrt{\hat{\sigma}^2(1-h_{ii})}}$$
+where $h_{ii}$ is the $i$th diagonal of the hat matrix $\mathbf{H}$.
+
+```{r ,echo=FALSE,fig.width=8,fig.height=4 }
+par(mfrow=c(1,2))
+par (mar=c(3,3,2,1), mgp=c(2,.7,0), tck=-.01)
+
+plot(fitted(regout),resid(regout),ylab="residual",xlab="fitted",col=rgb(0,0,0,alpha=0.3));abline(h=0,lty=2,col="grey")
+plot(fitted(regout),rstandard(regout),ylab="standardized residual",xlab="fitted",col=rgb(0,0,0,alpha=0.3));abline(h=0,lty=2,col="grey")
+```
+
+----
+
+### Studentized Residuals
+
+- Note that $\hat{\sigma}^2=\sum_{i=1}^n \hat{\epsilon}_i /(n-p)$. 
+- Studentized residual (`rstudent`)
+$$\hat{\epsilon}_{i}^{\star}= \frac{\hat{\epsilon}_i}{\sqrt{\hat{\sigma}_{(-i)}^2(1-h_{ii})}}$$
+where $\hat{\sigma}_{(-i)}^2=\sum_{j\neq i} \hat{\epsilon}_j /((n-1)-p)$
+
+```{r , echo=FALSE,fig.width=8,fig.height=4}
+par(mfrow=c(1,2))
+par (mar=c(3,3,2,1), mgp=c(2,.7,0), tck=-.01)
+
+plot(fitted(regout),resid(regout),ylab="residual",xlab="fitted",col=rgb(0,0,0,alpha=0.3));abline(h=0,lty=2,col="grey")
+plot(fitted(regout),rstudent(regout),ylab="studentized residual",xlab="fitted",col=rgb(0,0,0,alpha=0.3));abline(h=0,lty=2,col="grey")
+```
+
+```{r studentres,  exercise=TRUE}
+regout <- lm(rent ~ yearc + area + district + factor(location), data=rent99) 
+
+```
+
+----
+
+
+### Pearson residual (car::residualPlots)
+
+- If we have known weights, as we will see shortly, 
+$$\hat{\boldsymbol{\epsilon}}^p_i=\sqrt{w_i}\hat{\boldsymbol{\epsilon}}$$
+
+- The residual is special case of a Pearson residual
+$$\hat{\boldsymbol{\epsilon}}=\mathbf{y}-\hat{\mathbf{y}}$$
+
+`residualPlots` from `car` package provide another way to plot the residual.
+
+```{r,fig.width=4,fig.height=4,message=FALSE}
+residualPlots(regout, terms= ~ 1, fitted=TRUE)
+```
+
+
+----
+
+## Joint influence
+
+There are some useful diagnostics plots that you can use to assess the overall fit of the model.
+
+### Marginal Model Plot (`car::marginalModelPlots`)
+
+Marginal model plot shows the fit of the data marginally for each predictor variable. 
+It is constructed by plotting the dependent variable on each vertical axis and each independent variable on a horizontal axis. There is one marginal model plot for each independent variable and one additional plot that displays the predicted values on the horizontal axis. 
+Each plot contains a scatter plot of the two variables, a smooth fit function for the variables in the plot (labeled "Data"), and a function that displays the predicted values as a function of the horizontal axis variable (labeled "Model").  The discrepancy between the two lines indicates locations where the model is not fitting the observed data.  However, there is a possibility that the smoother is not fitting the data well in which case you want to be careful not to overfit.
+
+```{r}
+marginalModelPlots(regout,col=rgb(0,0,0,alpha=0.3),col.line = c("green","red"))
+```
+
+```{r resid, echo=FALSE}
+question("Choose the correct statement about the plots above?",
+  answer("The plot suggests a nonlinear trend between time and rent, we might consider adding a quadratic form of time in the model", correct = TRUE),
+  answer("The plot suggests that the variable area is correlated with other variables"),
+  answer("The influence of district is not significant and the variable can therefore be excluded from the model"),
+  allow_retry = TRUE
+)
+```
+
+
+
+### Added variable plots (`car::avPlots`)
+
+`avPlots` function construct added-variable plots or the partial-regression plots for linear and generalized linear models.  Added variable plots are constructed by plotting $\mathbf{y}^r_i$ versus $\mathbf{X}^r_i$ where $\mathbf{y}^r_i$ is the residual of regressing all the predictor except for the $i$th on $\mathbf{y}$ and $\mathbf{X}^r_i$ is the residual of regressing all the predictor except for the $i$th on $\mathbf{X}_i$.
+
+It has several nice features that are useful in looking at the marginal effect of the predictors.
+1. The least squares linear fit to this plot has the same slope as the original model and intercept zero.
+2. The residuals from the least squares linear fit to this plot are identical to the residuals from the least squares fit of the original model.
+3. The influences of individual data values on the estimation of a coefficient are easy to see in this plot.
+4. It is easy to see many kinds of failures of the model or violations of the underlying assumptions (nonlinearity, heteroscedasticity, unusual patterns). 
+
+<!-- Paul Velleman; Roy Welsch (November 1981). "Efficient Computing of Regression Diagnostics". The American Statistician. American Statistical Association. 35 (4): 234–242.  -->
+
+```{r,warning=FALSE,fig.width=8,fig.height=9,fig.align="center"}
+avPlots(regout, id.n=0, id.cex=0.6)
+```
+
+
+----
+
+## Detecting the Unusual Data 
+
+Defining unusual data is not trivial.  It depends on how badly does the "substantial" result get affected by it.
+
+- Is the unusual data one time error?
+- Or is it something that would come up repeatedly.
+- Is the "unusual"ness comes from our prior assumption and this is how data always looks?
+- NASA Nimbus 7 satellite was discarding Antarctic ozone hole data because it was unusual.
+
+Here is a plot of reported weight versus the actual weight.  It's most likely an recording error that we can discard.  However if the model is fitted without realizing its existence, the resulting model can be severely biased.
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,fig.width=4,fig.height=2,}
+Davis<-read.table("http://socserv.socsci.mcmaster.ca/jfox/Books/Applied-Regression-3E/datasets/Davis.txt")
+#saveRDS(Davis,"Davis.rds")
+#Davis<-read.table("Davis.txt",header = TRUE)
+gp1<-ggplot(Davis)+aes(x=reportedWeight,y=weight,label=sex,color=sex)+theme(legend.position="none")+
+  geom_text()+geom_smooth(method="lm",se=FALSE)
+gp2<-ggplot(Davis)+aes(y=reportedWeight,x=weight,label=sex,color=sex)+theme(legend.position="none")+
+    geom_text()+geom_smooth(method="lm",se=FALSE)
+grid.arrange(gp1,gp2,ncol=2)
+```
+But we should also note that the degree to which this problematic observation causes is different depending on the way it deviates.
+
+### Leverage and influence
+
+- Influential points are observations that have large influence on the resulting model.  
+- The degree of influence is determined by both the leverage and the discrepancy.
+$$ \mbox{Influence} = \mbox{Leverage} \times \mbox{Discrepancy}$$
+- Leverage can be thought of as were the points are and 
+- Discrepancy can be though of as how much they deviate
+
+![](./images/Rplot_All_pivot3.png){width=80%}
+
+```{r leverage, echo=FALSE}
+question("Choose the correct statement",
+  answer("(10,0) is a high leverage and high influence point"),
+  answer("(0,-10) is a low levergae and high inflluence point"),
+  answer("(10,10) is a high leverage and high influence point", correct = TRUE),
+  allow_retry = TRUE
+)
+```
+                        
+resourse: "http://omaymas.github.io/InfluenceAnalysis/"                         
+
+### Hat values
+
+- Recall the hat matrix $\mathbf{H}=\mathbf{X}(\mathbf{X}^{T}\mathbf{X})^{-1}\mathbf{X}^{T}$. 
+- The $i,j$th entry in the hatmatrix $h_{ij}$ captures the contribution of observation $y_i$ to the fitted value $\hat{y}_j$.
+\begin{itemize}
+\item large $h_{ij}$ means $i$th observation has considerable impact on the $j$th fitted value.
+\end{itemize}
+- Since $\hat{y}_i=\sum_{j=1}^{n}h_{ij}y_{j}$ and $y_i$ and $y_j$ are uncorrelated $cor(y_i, \hat{y}_i)=\sqrt{h_{ii}}$.
+
+- $i$th diagonal of the hat matrix $\mathbf{H}$, $h_{ii}$ or $h_{i}$ is the hat value for the $i$th observation.
+
+- In simple regression it measures the distance from the mean of $x$.
+$$h_{ii}=\frac{1}{n}+\frac{(x_i-\bar{x})^2}{\sum_{j=1}^n(x_j-\bar{x})^2}$$
+- In multiple regression it measures the distance from the centroid of $\mathbf{X}$
+- It summarizes the potential influence of $y_i$ on all the fitted values.
+- Hat values are between $1/n < h_{ii}< 1$ and the average is $\bar{h}=p/n$.
+
+----
+
+### Hat values: Duncan's Data on the Prestige of U.S. Occupations
+
+- type: Type of occupation: prof, professional and managerial; wc, white-collar; bc, blue- collar.
+- income: Percent of males in occupation earning $3500 or more in 1950.
+- education: Percent of males in occupation in 1950 who were high-school graduates.
+- prestige: Percent of raters in NORC study rating occupation as excellent or good in prestige.
+
+```{r,echo=FALSE,message=FALSE,fig.width=8,fig.height=4}
+#Duncan<-read.table("../Data/Duncan.txt")
+Duncan<-read.table("https://socialsciences.mcmaster.ca/jfox/Books/Applied-Regression-3E/datasets/Duncan.txt")
+Duncan$jobnames<-rownames(Duncan)
+grid.arrange(
+ggplot(Duncan)+geom_point()+aes(y=prestige,x=income,label=jobnames)+geom_text(vjust = 0,nudge_y = 2),
+ggplot(Duncan)+geom_point()+aes(y=prestige,x=education,label=jobnames)+geom_text(vjust = 0,nudge_y = 2),
+ncol=2)
+```
+
+```{r,echo=FALSE,message=FALSE,fig.width=8,fig.height=8}
+mod.duncan <- lm(prestige ~ income + education, data=Duncan)
+Duncan$hat = hatvalues(mod.duncan)
+ggplot(Duncan)+aes(education,income,size=hat,color=hat<0.15)+
+  geom_point()+theme(legend.position="none")+
+  stat_ellipse()+geom_text(vjust = 0,nudge_y = 2,hjust = 0,nudge_x = 1,aes(label=jobnames,size=0.1))
+```
+
+----
+
+### Bonferroni Outlier Test
+
+There are tests for outliers.  
+
+```{r}
+mod.duncan <- lm(prestige ~ income + education, data=Duncan)
+outlierTest(mod.duncan)
+```
+
+----
+
+## Influence on regression coefficient
+
+- Let $\hat{\beta}_j$ be least squares coefficient calculate on all the data.
+- $\hat{\beta}_{j(-i)}$ is the same coefficient calculated on data without $i$th observation.
+
+- $DFBETA_ij$ (`dfbeta`)
+$$ D_{ij}=\hat{\beta}_j-\hat{\beta}_{j(-i)}$$
+
+- $DFBETAS_ij$ (`dfbetas`)
+$$ D_{ij}^{\star}=\frac{\hat{\beta}_j-\hat{\beta}_{j(-i)}}{Se_{(-i)}(\hat{\beta}_j)}$$
+
+- Problem with these statistics is that there are many of them $np$.
+
+```{r,echo=FALSE,fig.width=8,fig.height=4}
+nnm<-names( fitted(mod.duncan))
+gpd1 <-ggplot(data.frame(index=1:45,dd=dfbeta(mod.duncan),nm=nnm))+geom_point( shape=21)+aes(x=index,y=dd.income,label=nm)+xlab(" index")+theme(legend.position="none")+ ylab("DFBETA")+ggtitle("income")
+gpd2 <-ggplot(data.frame(index=1:45,dd=dfbeta(mod.duncan),nm=nnm))+geom_point( shape=21)+aes(x=index,y=dd.education,label=ifelse(abs(dd.education)<0.05,"", nm))+xlab(" index")+theme(legend.position="none")+ ylab("DFBETA")+ggtitle("education")
+grid.arrange(gpd1,gpd2,ncol=2)
+```
+
+
+----
+
+### Cook's distance (`cooks.distance`)
+
+- Cook's idea was to measure the distance between $\mathbf{\hat{\beta}}$ and $\mathbf{\hat{\beta}}_{(-i)}$.
+$$D_i =\frac{(\mathbf{\hat{\beta}}-\mathbf{\hat{\beta}}_{(-i)})'\mathbf{X}^{'}\mathbf{X}(\mathbf{\hat{\beta}}-\mathbf{\hat{\beta}}_{(-i)})}{p s^2}$$
+
+- It turns out that you can re-express Cook's distance as
+$$ D_i=\frac{(\hat{\epsilon}_i^{'})^2}{p}\frac{h_i}{1-h_i}$$
+- First terms is the measure of discrepancy 
+- Second term is the measure of leverage
+
+```{r,echo=FALSE,fig.width=8,fig.height=8}
+ggplot(data.frame(rs=rstudent(mod.duncan),hat=hatvalues(mod.duncan),cd=cooks.distance(mod.duncan)))+geom_point( shape=21)+aes(x=hat,y=rs,size=cd)+xlab("hat value")+theme(legend.position="none")+ ylab("studentized residual")
+```
+
+----
+
+### $DEFITS_i$ (`dffits`)
+
+- Similar measure is $DEFITS$, which uses studentized residual.
+
+$$DEFITS_i= \hat{\epsilon}_{i}^{\star}\sqrt{\frac{h_{i}}{1-h_{i}}}$$
+
+```{r,echo=FALSE,fig.width=8,fig.height=8}
+ggplot(data.frame(rs=rstudent(mod.duncan),hat=hatvalues(mod.duncan),cd=dffits(mod.duncan)))+geom_point( shape=21)+aes(x=hat,y=rs,size=cd)+xlab("hat value")+theme(legend.position="none")+ ylab("studentized residual")
+```
+
+
+### Influence Index Plot (`car::influenceIndexPlot`)
+
+Provides index plots of Cook's distances, leverages, Studentized residuals, and outlier significance levels for a regression object.
+
+```{r,warning=FALSE}
+par (mar=c(3,3,2,1), mgp=c(2,.7,0), tck=-.01)
+influenceIndexPlot(mod.duncan, id.n=5)
+```
+
+### Influence plot (`car::influencePlot`)
+
+This function creates a bubble of studentized residuals by hat values, with the areas of the circles representing the observations proportional to Cook's distances. Vertical reference lines are drawn at twice and three times the average hat value, horizontal reference lines at -2, 0, and 2 on the Studentized-residual scale.
+
+```{r,warning=FALSE}
+par (mar=c(3,3,2,1), mgp=c(2,.7,0), tck=-.01)
+influencePlot(mod.duncan, id.n=5)
+```
+
+
+## Normality of residuals
+
+Deviation from normality of the residuals is not critical in estimating the main effect as long as the errors are symmetric. However, it is an indication that some assumptions may be violated, which might require additional modeling effort for accuracy in the inference.
+
+### QQ plot: compares residual against theoretical normal quantity.
+
+Here are examples of what a qqplot looks like under different shapes of distribution.
+```{r, echo=FALSE,fig.width=8,fig.height=8}
+n <- 100
+par(mfrow=c(2,2))
+par (mar=c(3,3,2,1), mgp=c(2,.7,0), tck=-.01)
+x <- rnorm(n); qqnorm(x,ylab="normal",main=""); qqline(x)
+x <- exp(rnorm(n)); qqnorm(x,ylab="lognormal",main=""); qqline(x)
+x <- rcauchy(n); qqnorm(x,ylab="Cauchy",main=""); qqline(x)
+x <- runif(n,-1,1); qqnorm(x,ylab="Uniform",main=""); qqline(x)
+```
+On the upper left corner is what a qqplot will look like if the distribution or the errors are normal. Upper right is a situation where there is heavy right skewness.  Notice that the points are above the line that indicates heavyness of the tails relative to what you would expect under normal distribution.  
+```{r}
+curve(dnorm(x),from=-5,to=5,col="blue",ylim=c(0,0.7))
+curve(dlnorm(x),from=-5,to=5,add=TRUE,col="red")
+```
+
+- On the lower left we have a symmetric heavy tailed distribution.  The heavy tailed ness on the right is depicted by the points going above the line and on the left it is also shown by points below the line.  
+```{r}
+curve(dnorm(x),from=-5,to=5,col="blue")
+curve(dcauchy(x),from=-5,to=5,add=TRUE,col="red")
+```
+
+- Finally, the lower right figure shows a uniform distribution that shows light tailed distribution. Notice that the tail behavior is opposite of what you would see under heavy tailed distribution.
+```{r}
+curve(dnorm(x),from=-5,to=5,col="blue",ylim=c(0,0.5))
+curve(dunif(x,-1,1),from=-5,to=5,add=TRUE,col="red")
+```
+
+### Shapiro-Wilk test
+
+Shapiro-Wilk test implemented in R as `shapiro.test()` is a popular test for the normality.  The null hypothesis is that the residuals are normally distributed.  Small p-value is often used as an evidence against normality.
+```{r, echo=TRUE,fig.width=8,fig.height=8}
+n <- 100
+x <- rnorm(n); shapiro.test(x)
+x <- exp(rnorm(n)); shapiro.test(x)
+x <- rcauchy(n); shapiro.test(x)
+x <- runif(n,-1,1); shapiro.test(x)
+```
+
+## Detecting heteroscedasticity
+
+From P186:
+In most cases, heteroscedasticity is diagnosed with exploratory techniques, while substantial scientific theory regarding the type and magnitude of heteroscedasticity almost never exists. This is the reason why we face even more uncertainty when modeling error variances in a linear model than when modeling expectations. The validity of statistical tests is extremely dependent on the correctness of models. The Breusch-Pagan test assumes, for example, multiplicative variances with exactly defined covariates. The number of covariates in the variance expression determines the distribution of the test statistic. Hence, tests on heteroscedasticity should be seen as a (heuristic) exploratory tool, similar to residual plots. These tests should by no means be the only device to diagnose heteroscedasticity. Yet, this is suggested by most econometric textbooks, in which a battery of heteroscedasticity tests are described, while rarely is there a mention of residual plots. Residual plots should always be part of heteroscedasticity analysis, since they are in many cases the only tool to detect the specific type of heteroscedasticity or to determine which of the covariates influence the error variances.
+
+### Residual plot
+
+```{r,fig.width=8,fig.height=4}
+par(mfrow=c(1,2))
+par (mar=c(3,3,2,1), mgp=c(2,.7,0), tck=-.01)
+plot(fitted(regout),resid(regout)); abline(h=0,lty=2,col="grey",main="fitted vs residual")
+rs<-rstudent(regout)
+plot(fitted(regout),rs); abline(h=0,lty=2,col="grey",main="fitted vs studentized residual")
+```
+
+### Breusch–Pagan Test for heteroscedasticity
+
+```{r}
+bptest(regout)
+```
+
+### Spread-Level Plots
+```{r}
+spreadLevelPlot(regout)
+```
+
+## Correlated error
+
+Sometimes errors are auto correlated, which could be detected from the residuals.  
+Here we simulate a correlated data according to the Example 4.6.
+```{r}
+ee <- rep(0,100)
+ee[1]<-rnorm(1,0,0.5)
+for(i in 2:100){ ee[i] <- 0.9*ee[i-1]+rnorm(1,0,0.5)}
+x<- runif(100,-3,3)
+y <- -1+2*x+ee
+plot(x,y)
+```
+
+Each outcome is correlated with the subsequent one.  However when you look at the plot the correlation is not obvious since the effect of the 
+
+
+### Durbin-Watson test
+- H0: Residuals are not correlated - Small p-value can be used as an evidence against correlated error
+```{r ,fig.width=12,fig.height=4}
+par(mfrow=c(1,3))
+par (mar=c(3,3,2,1), mgp=c(2,.7,0), tck=-.01)
+lmr<- lm(y~x)
+plot(1:100,resid(lmr)); abline(h=0,lty=2,col="grey",main="fitted vs residual")
+acf(resid(lmr),lag=30)
+pacf(resid(lmr))
+```
+
+```{r}
+lmtest::dwtest(lmr)
+```
+
+
+
+## Review Questions 
+
+```{r review1, echo=FALSE}
+question("Which kind of plot can be used to detect influence points",
+  answer("qqplot"),
+  answer("avplot"),
+  answer("marginal model plot"),
+  answer("dffits plot", correct = TRUE),
+  allow_retry = TRUE
+)
+```
+
+```{r review2, echo=FALSE}
+question("Choose the correct statement about linear regression assumptions",
+  answer("If the residuals do not follow a normal distrubution, then the data is not able to be modeled by linear regressions"),
+  answer("Transformation of the predictors can be used when additivity and linearity are violated", correct = TRUE),
+  answer("Heteroskedasticity indicates correlation between residuals"),
+  answer("High leverage points will affect the model fit"),
+  allow_retry = TRUE
+)
+```
+
+```{r review3, echo=FALSE}
+question("We can compare the performance of different models using their raw residuals",
+  answer("True"),
+  answer("False",correct = TRUE),
+  allow_retry = TRUE
+)
+```
+
+
