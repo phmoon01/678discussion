@@ -1,0 +1,542 @@
+---
+title: "MA678 Discussion"
+date: "September 04, 2019"
+output: learnr::tutorial
+runtime: shiny_prerendered
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load("learnr","foreign","knitr","plotly","arm","ggplot2")
+```
+
+# Regression Analysis
+## 1. Data: Munich Rent Index
+
+---
+
+### 1.1 Variables: 
+
+  - `rent`: Net rent per month (in Euro)
+  - `rentsqm`：Net rent per month per square meter (in Euro)
+  - `area`: Living area in square meters
+  - `yearc`: Year of construction
+  - `location`: Quality of location according to an expert assessment
+        - `1` = averyearc location 
+        - `2` = good location 
+        - `3` = top location
+  - `district`: District in Munich
+
+
+```{r}
+# read data
+rents<-read.dta("rent99.dta")
+summary(rents)
+```
+
+
+### 1.2 Goal
+
+Two main goals of statistical models are interpretation and prediction. For regression analysis, we usually focus more on interpretation than prediction in practice. 
+
+The goal of the regression analysis for this data is to model the impact of independent variables (living area, year of construction, location, etc.) on the response variable of net rent or net rent per square meter. Munich rent index data will be used throughout the semester to illustrate regression models with continuous responses (see Chaps. 2--4, 9, and 10 of FKLM). 
+
+In doing so, we use simplified models for illustration purposes. This implies that the results do not always correspond to the official rent index.
+
+
+### 1.3 Coding - loading packages
+
+The `library()` function is used to load libraries, or groups of functions and data sets that are not included in the base R distribution. Basic functions that perform least squares linear regression and other simple analyses come standard with the base distribution, but more exotic functions require additional libraries. Here we load the `arm` package, which includes display command. If you receive an error message when loading any of these libraries, it likely indicates that the corresponding library has not yet been installed on your system. You can use the R command line via `install.packages("package name")`. This installation only needs to be done the first time you use a package. However, the `library()` function must be called each time you wish to use a given package.
+
+```{r}
+library(arm)
+```
+
+To avoid some of the complications due to installation, we also use `p_load` command from the `pacman` package.  The benefit of using `p_load` is that it will install the packages for you if it is not installed on your local machine.
+
+```{r}
+pacman::p_load("arm")
+```
+
+
+
+## 2. Exploratory Data Analysis (EDA)
+
+---
+
+When we are given a dataset, we can use EDA to better understand the data and choose the appropriate techniques to deal with it. We can check for the linear or nonlinear relationship between response variable and independent variable so that we can choose appropriate methods, we can check to see if we need to add interaction term in the regression, we can also check for outliers that can affect regression fit etc. There are a lot of things that we can discover from EDA, and in this chapter, we will focus on checking for the linear relationship and interaction term.
+
+
+### 2.1 Linear Relationship
+
+For example, in the Munich Rent Index dataset, we can create plots to check the relationship between response variable and independent variables.
+
+```{r}
+ggplot(rents,mapping=aes(area,rent))+
+  geom_point(alpha=0.5)+
+  geom_smooth()+
+  theme_classic()
+```
+
+We usually use scatter plot and smooth line to check the relationship between response variable and continuous independent variable. `ggplot()` from the "ggplot2" package can be used to draw plot and `geom_smooth` command can be used to creat a line for smoothed conditional means as shown in the plot.
+
+This plot indicates that relationship between rent and area seems to be linear, since it is clear that as area increases, rent keeps increasing as well. Therefore we can try linear regression for deeper analysis. 
+
+We can also try to create plots of response variable and other continuous independent variables.
+```{r plot, exercise=TRUE}
+ggplot(rents,mapping=aes(yearc,rent))+
+  geom_point(alpha=0.5)+
+  geom_smooth(method="lm")+
+  theme_classic()
+```
+
+
+In terms of categorical independent variables, we can use violin plot to visualize the relationship. 
+```{r}
+rents$location = as.factor(rents$location)
+
+ggplot(rents,mapping=aes(location,rent))+
+  geom_violin(fill="skyblue",alpha=0.5)+
+  theme_classic()
+```
+
+Violin plot describes the distribution of the data. This plot shows that there is not much difference in rent index for location 1 and 2, however, location 3 has evident difference in rent index compared to other two locations. It is evident that the majority of rent index value for location 3 is higher than the other two, and the data is more evenly distributed than the other two. 
+
+
+### 2.2 Interaction
+
+Interaction describes a situation that when an independent variable is at different level, the effect of another independent variable will change. In this case, the value of location will chenge the effect of area to rent index.
+
+```{r}
+ggplot(rents,mapping=aes(area,rent,color=location))+
+  geom_point(alpha=0.5)+
+  geom_smooth(method="lm")+
+  theme_classic()
+```
+
+If we want to check the linear relationship between area and rent in different locations, we can use `facet_grid()`.
+```{r}
+library(ggplot2)
+rents_gp <- ggplot(rents)
+
+## split it up by location
+rents_gp + aes(x=area, y=rent, colour = factor(location))+ 
+  geom_point()+ stat_smooth(method=lm,color="orange")+
+  facet_grid( .~location, scales="fixed", labeller= label_both)
+```
+
+
+```{r add_interactions, echo=FALSE}
+question("What sign in the plot indicate we need to add an interaction in the model?",
+  answer("The slope for location 1 and 2 are different", correct = TRUE),
+  answer("There are outliers at the right hand side of the plot"),
+  answer("Rent of bigger houses at location 2 have a larger variance"),
+  allow_retry = TRUE
+)
+```
+
+
+
+## 3. Simple Linear Regression
+
+---
+
+### 3.1 Result
+
+We will start by using the `lm()` function to fit a simple linear regression model, with rent as the response and area as the predictor. The basic syntax is `lm(y∼x,data)`, where `y` is the response, `x` is the predictor, and data is the data set in which these two variables are kept. 
+
+```{r}
+## continuous predictor
+regout1 <- lm(rent ~ area, data=rents) 
+```
+
+If we type regout1, some basic information about the model is output. 
+
+```{r regout_print,exercise=TRUE}
+regout1
+
+```
+
+For more detailed information, we use `summary(regout1)` or `display(regout1)`. This gives us pvalues and standard errors for the coefficients, as well as the R2 statistic and F-statistic for the model. We also use coef(regout1) to see only the coefficients of the fitted model.
+
+```{r regout_print_summary,exercise=TRUE}
+summary(regout1)
+```
+
+```{r regout_print_display,exercise=TRUE}
+display(regout1)
+```
+
+you can also grab the coefficients using coef function.
+
+```{r regout_print_coefficients,exercise=TRUE}
+coef(regout1)
+```
+
+or you can only access the intercept using its index
+```{r regout_print_intercept,exercise=TRUE}
+coef(regout1)[1]
+```
+
+
+### calculate the p-value ourselves
+
+for intercept (as an example)
+
+```{r}
+pt(134.5922/8.6135, df = df.residual(regout1), lower.tail = FALSE) *2
+```
+
+for variable area (try it yourself)
+
+```{r calculate_pvalue, exercise=TRUE}
+
+```
+
+```{r calculate_pvalue-solution}
+pt(4.8215/0.1206, df = df.residual(regout1), lower.tail = FALSE) *2
+```
+
+
+### now try to change the continuous predictor(area) to a categorical predictor (location). 
+
+```{r factorize, exercise=TRUE}
+regout2 <- lm(rent ~ area, data=rents)   
+summary(regout2) 
+display(regout2)
+```
+
+<div id="factorize-hint">
+**Hint:** You may want to use `factor()` function to encode a vector as factor.
+</div>
+
+
+### 3.2 Model Check
+
+### Visualization: Regression Line
+
+We can use `fitted(regout1) / resid(regout1)` to see only the fitted values / residuals  of the fitted model, and `abline()` to add the regression line to a scatter plot.
+
+```{r fitted_and_resid, exercise=TRUE}
+fittedValues <- fitted(regout1)  # y_hat 
+Residuals   <- resid(regout1)     # y - y_hat 
+```
+
+
+Add the regression line to a scatter plot
+```{r abline, exercise=TRUE}
+plot(rent ~ area, data=rents)
+```
+
+```{r abline-solution}
+plot(rent ~ area, data=rents)
+abline(regout2)
+```
+
+Below is an alterative method to add the regression line to a scatter plot. We first creat the predicted value (prent) for rent based on regout1. Then use `lines()` to add the regression line to the scatter plot.
+
+
+```{r alter, exercise=TRUE}
+prent <- predict(regout1, data =rents)
+plot(rent ~ area, data=rents)
+
+```
+
+```{r alter-solution}
+lines(prent ~ area, data =rents)
+```
+
+We can also use `ggplot()` from the "ggplot2" package. From this package, the `geom_smooth()` and `stat_smooth()` can be used to creat a line for smoothed conditional means. Here we choose to use linear model ("lm") as the smoothing method (function).
+
+```{r}
+## ggplot2 
+rents_gp <- ggplot(rents)
+
+# use stat_smooth(method = "lm")
+rents_gp + aes(x=area, y=rent)+ geom_point()+ 
+  stat_smooth(method = "lm", col = "red")
+```
+
+We can also use `abline()` to draw the regression line based on the regression model regout1.
+
+```{r}
+# use geom_abline()
+rents_gp + aes(x=area, y=rent)+ geom_point()+ 
+  geom_abline(intercept=coef(regout1)[1], slope=coef(regout1)[2], size =1,color="orange")
+```
+
+
+### Assumptions Check: Residual Plot
+```{r}
+plot(regout1,which=1)
+```
+
+```{r heter, echo=FALSE}
+question("What problem can we spot in the residual plot above?",
+  answer("Residuals on the right hand side are more spread out", correct = TRUE),
+  answer("Most residuals clustered in the left hand side of the plot"),
+  answer("Residuals are asymmetrical around 0"),
+  allow_retry = TRUE
+)
+```
+
+```{r heter_2, echo=FALSE}
+question("What might be the reason that we see this pattern? (select ALL that apply)",
+  answer("There aren't many big houses compare to smaller houses"),
+  answer("The rent of houses and their living area don't always follow a linear relationship", correct = TRUE),
+  answer("The price range of bigger houses are wider than smaller houses ", correct = TRUE),
+  allow_retry = TRUE
+)
+```
+
+
+
+### Assumptions Check: Normal Distribution
+
+We usually use QQ-plot to check the normal distribution assumption of residuals.
+
+```{r}
+plot(regout1,which=2)
+```
+
+```{r normal_1, echo=FALSE}
+question("Which axis in the QQ-plot represent the actual observation?",
+  answer("x axis"),
+  answer("y axis", correct = TRUE),
+  allow_retry = TRUE
+)
+```
+
+```{r normal_2, echo=FALSE}
+question("What does this QQ-plot indicate? (select ALL that apply)",
+  answer("The residuals do not follow the normal distribution."),
+  answer("The residuals follow the normal distribution generally.", correct = TRUE),
+  answer("There is some tail issue indicated by the QQ-plot.", correct = TRUE),
+  allow_retry = TRUE
+)
+```
+
+```{r ass_1, echo=FALSE}
+question("Check all assupmtions valid according to the residual plot and QQ-plot:",
+  answer("Linear relation between response variable and independent variables.",correct=TRUE),
+  answer("Equal Vairance of errors."),
+  answer("Independence of errors ", correct = TRUE),
+  answer("Normality of errors ", correct = TRUE),
+  allow_retry = TRUE
+)
+```
+
+
+## 4. Multiple regression model 
+
+---
+
+### 4.1 Result
+
+### predict rent from location, yearc, area, and district
+In order to fit a multiple linear regression model using least squares, we again use the `lm()` function. The syntax `lm(y∼x1+x2+x3)` is used to fit a model with three predictors, `x1`, `x2`, and `x3`. The `summary()` function now outputs the regression coefficients for all the predictors.
+
+```{r}
+regout <- lm(rent ~ yearc + factor(location) + area + district, data=rents) 
+summary(regout) 
+```
+
+
+### calculate the p-value for the district coefficient
+```{r dist_pvalue, exercise=TRUE}
+
+```
+
+```{r dist_pvalue-solution}
+pt(-8.550e-03/ 4.341e-03, df = 3076) *2 
+```
+
+
+### confint() can be used to request confidence intervals for the slopes
+In order to obtain a confidence interval for the coefficient estimates, we can use the `confint()` command.
+```{r}
+kable(confint(regout),digits=2)
+
+```
+
+Visually effective way to show the effects as well as their uncertainty is using the `coefplot()` function in library `arm`.
+```{r coefplot, exercise=TRUE}
+coefplot(regout)
+```
+
+### CI vs PI
+The `predict()` function can be used to produce confidence intervals and prediction intervals for the prediction of rent for the given values of location, yearc, area, and district.
+```{r}
+predict(regout, data.frame(yearc=60, location=1, district=180, area=21),interval='confidence') 
+predict(regout, data.frame(yearc=60, location=1, district=180, area=21),interval='prediction') 
+```
+
+```{r PI_CI, echo=FALSE}
+question("If I want to know the estimate range of rent for a house: yearc=1919, location=50, district=372, area=21, what kind of interval am I looking for?",
+  answer("Prediction interval", correct = TRUE),
+  answer("Confidence interval"),
+  allow_retry = TRUE
+)
+```
+
+
+### 4.2 Model Check
+
+### Visualization: plots for the fitted model
+#### Fitted vs Actual
+We can check the model's precision by looking at the scatter plot below. The more fitted , the more likely that points located around `y=x`.
+```{r}
+plot(rents$rent, fitted(regout),xlab="actual value",ylab="fitted values")
+```
+
+### Assumption Check: Residual Plot
+#### Residuals vs Fitted
+Or we can check the plot of residuals vs fitted. More close to the horizontal line, more fitted. Since this plot shows bigger variance to the right side, heteroskedasticity exists here.
+```{r}
+plot(regout,which=1)
+```
+
+
+#### alternative
+Plotly can be used to create interactive graphics. Try the codes below and have fun.
+```{r}
+library(plotly)
+plot_ly(x = fitted(regout), y = resid(regout), 
+        type = "scatter", mode = "markers", hoverinfo = "x+y", name = "",
+        marker = list(size = 6, opacity = 1), showlegend = F) %>% 
+  layout(title = "Residuals vs Fitted Values",  width = 1000)
+
+plot_ly(data = rents, x = fitted(regout), y = resid(regout), mode = "markers",
+        color = factor(rents$location))
+```
+
+
+### Assumptions Check: Normal Distribution
+
+Same with simple linear regression, we will check normal assumption using QQ-plot.
+
+```{r}
+plot(regout,which=2)
+```
+
+```{r normal_3, echo=FALSE}
+question("Can we say the normal assumption is valid?",
+  answer("Yes", correct = TRUE),
+  answer("No"),
+  allow_retry = TRUE
+)
+```
+
+
+## 5. Nonlinear transformation
+
+---
+
+### 5.1 Polynomial Regression 
+
+To explcitly show the trend we can use `geom_smooth`, which uses loess or GAM by default to capture the nonlinear trend.
+
+```{r}
+ggplot(rents, aes(area, rentsqm)) + geom_point(color="orange")+geom_smooth()
+```
+
+From the above plot, we see that simple linear regrssion is may not be optimal for exploring the relationship between `rentsqm` and `area`.  We can try to add a quadratic term as following:
+
+```{r}
+regoutPoly <- lm(rentsqm ~ area + I(area^2), data=rents)  
+summary(regoutPoly)
+```
+
+The fitted line can be plotted the following way:
+
+```{r}
+regoutPoly <- lm(rentsqm ~ area + I(area^2), data=rents)  
+summary(regoutPoly)
+plot( rents$area,rents$rentsqm) 
+predx<-seq(range(rents$area)[1],range(rents$area)[2])
+predregoutPoly<-predict(regoutPoly,list(area=predx))
+lines(predx,predregoutPoly,col="red")
+```
+
+Which shows that the quadratic effect captures the none linear trend in the data.
+
+### 5.2 log transformation 
+
+Rather than adding nonlinear predictor, we can transform the outcome variable to reduce the nonlinearity.  Log transformation is the most popular transformation.
+
+```{r}
+ggplot(rents, aes(area, rentsqm)) + 
+  geom_point(color="orange")+geom_smooth()+
+  scale_y_continuous(trans="log")
+```
+
+
+Try converting the response variable into log scale
+```{r log, exercise=TRUE}
+regoutLog <- lm(rentsqm ~ yearc + factor(location) + area + district, data=rents) 
+summary(regoutLog) 
+coef(regoutLog)
+```
+
+Try other transformations and see if it make sense
+```{r log2, exercise=TRUE}
+regoutLog2 <- lm(rentsqm ~ yearc + factor(location) + log(area) + district, data=rents) 
+summary(regoutLog2) 
+coef(regoutLog2)
+```
+
+
+
+### 5.3 Additive Models with Interaction 
+Add interactions to your model
+```{r interaction, exercise=TRUE}
+regoutadd <- lm(rentsqm ~ factor(location) + area, data=rents) 
+summary(regoutadd)
+```
+
+
+```{r model_check, echo=FALSE}
+question("How do you make sure you have a suitable model for your data",
+  answer("All the coefficient estimations are significant"),
+  answer("Model has a large enough R-squared"),
+  answer("Residuals are distributed symmetrically above and below 0 with approximately equal variance", correct = TRUE),
+  allow_retry = TRUE
+)
+```
+
+```{r var_trans, echo=FALSE}
+question("Choose the correct statements (choose ALL that apply)",
+  answer("When two predictors are correlated, we only need to keep one of them in the model"),
+  answer("We can only fit linear regression models when the predictors and the response variable have a linear relationship"),
+  answer("Residual plot can tell many information about the model, including outliers, heteroschadasticity, independence of the errors", correct = TRUE),
+  answer("Transformation of variables can sometime remedy the situation of heteroschadasticity", correct = TRUE),
+  allow_retry = TRUE
+)
+```
+
+```{r var_choice, echo=FALSE}
+question("When shall we keep the predictors in the model (choose ALL that apply)",
+  answer("The coefficient estimation is significant and has the expected sign", correct = TRUE),
+  answer("The coefficient estimation is not significant but has the expected sign", correct = TRUE),
+  answer("The coefficient estimation is not significant and do not has the expected sign"),
+  answer("The coefficient estimation is significant but do not has the expected sign"),
+  allow_retry = TRUE
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
